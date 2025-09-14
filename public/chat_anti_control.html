@@ -142,7 +142,10 @@
         async function decryptMessage(base64Data, keyString) {
             try {
                 const encryptedData = base64ToArrayBuffer(base64Data);
-                if (!encryptedData) return "❌ Message corrompu";
+                if (!encryptedData || encryptedData.length < 12) {
+                    console.error('Données corrompues:', base64Data);
+                    return "❌ Message corrompu";
+                }
                 const key = await getKey(keyString);
                 const iv = encryptedData.slice(0, 12);
                 const data = encryptedData.slice(12);
@@ -192,7 +195,6 @@
                 return;
             }
 
-            // Connexion WebSocket
             const wsUrl = location.protocol === 'https:' ? `wss://${location.host}` : 'ws://localhost:3000';
             console.log('Connexion WebSocket à:', wsUrl);
             ws = new WebSocket(wsUrl);
@@ -205,12 +207,19 @@
                 document.getElementById("usernameInput").disabled = true;
             };
             ws.onmessage = async (event) => {
-                console.log('Message reçu:', event.data.substring(0, 50) + '...');
-                const encryptedMessage = event.data;
-                const decrypted = await decryptMessage(encryptedMessage, keyString);
-                const chat = document.getElementById("chat");
-                chat.innerHTML += `<p><strong>${new Date().toLocaleTimeString()} :</strong> ${decrypted}</p>`;
-                chat.scrollTop = chat.scrollHeight;
+                console.log('Message reçu brut:', event.data.substring(0, 50) + '...');
+                try {
+                    const encryptedMessage = event.data;
+                    const keyString = document.getElementById("keyInput").value.trim();
+                    const decrypted = await decryptMessage(encryptedMessage, keyString);
+                    console.log('Message déchiffré:', decrypted);
+                    const chat = document.getElementById("chat");
+                    chat.innerHTML += `<p><strong>${new Date().toLocaleTimeString()} :</strong> ${decrypted}</p>`;
+                    chat.scrollTop = chat.scrollHeight;
+                } catch (e) {
+                    console.error('Erreur dans onmessage:', e);
+                    document.getElementById("chat").innerHTML += "<p class='error'>Erreur: Message non déchiffrable.</p>";
+                }
             };
             ws.onclose = () => {
                 console.log('WebSocket déconnecté');
