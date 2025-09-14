@@ -1,4 +1,4 @@
-!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="fr">
 <head>
     <meta charset="UTF-8">
@@ -96,16 +96,18 @@
             return new TextDecoder().decode(buffer);
         }
 
-        // Générer une clé AES-GCM
+        // Générer une clé AES-GCM dérivée avec SHA-256
         async function getKey(keyString) {
             try {
-                const keyData = stringToArrayBuffer(keyString);
+                const encoder = new TextEncoder();
+                const keyData = encoder.encode(keyString);
+                const hash = await crypto.subtle.digest('SHA-256', keyData);
                 return await crypto.subtle.importKey(
-                    "raw",
-                    keyData,
-                    { name: "AES-GCM" },
+                    'raw',
+                    hash,
+                    { name: 'AES-GCM' },
                     false,
-                    ["encrypt", "decrypt"]
+                    ['encrypt', 'decrypt']
                 );
             } catch (e) {
                 console.error('Erreur génération clé:', e);
@@ -121,7 +123,7 @@
                 const iv = crypto.getRandomValues(new Uint8Array(12));
                 const encodedMessage = stringToArrayBuffer(message);
                 const encrypted = await crypto.subtle.encrypt(
-                    { name: "AES-GCM", iv: iv },
+                    { name: 'AES-GCM', iv: iv },
                     key,
                     encodedMessage
                 );
@@ -145,7 +147,7 @@
                 const iv = encryptedData.slice(0, 12);
                 const data = encryptedData.slice(12);
                 const decrypted = await crypto.subtle.decrypt(
-                    { name: "AES-GCM", iv: iv },
+                    { name: 'AES-GCM', iv: iv },
                     key,
                     data
                 );
