@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chat Chiffré Anti-Chat Control</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            padding: 20px;
+            max-width: 600px;
+            margin: auto;
+            background: #f4f4f4;
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+        }
+        .instructions {
+            background: #fff;
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        input, textarea {
+            width: 100%;
+            margin: 10px 0;
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            box-sizing: border-box;
+        }
+        button {
+            padding: 10px 20px;
+            background: #28a745;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover {
+            background: #218838;
+        }
+        #chat {
+            background: #fff;
+            padding: 15px;
+            border-radius: 5px;
+            min-height: 200px;
+            margin: 10px 0;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            overflow-y: auto;
+        }
+        #chat p {
+            margin: 5px 0;
+            padding: 5px;
+            border-left: 4px solid #28a745;
+        }
+        .error {
+            color: red;
+            font-style: italic;
+        }
+    </style>
+</head>
+<body>
+    <h1>Chat Chiffré (Anti-Chat Control)</h1>
+    <div class="instructions">
+        <p><strong>Instructions :</strong></p>
+        <ul>
+            <li>Partagez une clé secrète (16+ caractères) avec votre pote via un canal sûr (ex: Signal, en personne).</li>
+            <li>Entrez la clé, votre pseudo, et connectez-vous.</li>
+            <li>Envoyez des messages : ils sont chiffrés avant envoi et déchiffrés en texte clair avec la clé correcte.</li>
+            <li><strong>Sécurité :</strong> Les messages sont chiffrés avec AES-GCM. Le serveur ne voit que du charabia, même une IA comme Chat Control ne peut rien lire.</li>
+        </ul>
+    </div>
+
+    <input type="text" id="keyInput" placeholder="Clé secrète partagée (16+ caractères)">
+    <input type="text" id="usernameInput" placeholder="Votre pseudo">
+    <button onclick="connect()">Se connecter</button>
+    <textarea id="messageInput" placeholder="Votre message..." rows="3" disabled></textarea>
+    <button onclick="sendMessage()" disabled id="sendButton">Envoyer</button>
+    <div id="chat"><strong>Messages :</strong> (connectez-vous pour commencer)</div>
+
+    <script>
+        let ws = null;
+        let username = '';
+
+        // Convertir chaîne en ArrayBuffer
+        function stringToArrayBuffer(str) {
+            return new TextEncoder().encode(str);
+        }
+
+        // Convertir ArrayBuffer en chaîne
+        function arrayBufferToString(buffer) {
+            return new TextDecoder().decode(buffer);
+        }
+
+        // Générer une clé AES-GCM
+        async function getKey(keyString) {
+            try {
+                const keyData = stringToArrayBuffer(keyString);
+                return await crypto.subtle.importKey(
+                    "raw",
+                    keyData,
+                    { name: "AES-GCM" },
+                    false,
+                    ["encrypt", "decrypt"]
+                );
+            } catch (e) {
+                console.error('Erreur génération clé:', e);
+                alert('Erreur avec la clé. Vérifiez qu’elle est valide.');
+                throw e;
+            }
+        }
+
+        // Chiffrer un message
+        async function encryptMessage(message, keyString) {
+            try {
+                const key = await getKey(keyString);
+                const iv = crypto.getRandomValues(new Uint8Array(12));
+                const encodedMessage = stringToArrayBuffer(message);
+                const encrypted = await crypto.subtle.encrypt(
+                    { name: "AES-GCM", iv: iv },
+                    key,
+                    encodedMessage
+                );
+                const combined = new Uint8Array(iv.length + encrypted.byteLength);
+                combined.set(iv, 0);
+                combined.set(new Uint8Array(encrypted), iv.length);
+                return arrayBufferToBase64(combined);
+            } catch (e) {
+                console.error('Erreur chiffrement:', e);
+                alert('Erreur lors du chiffrement du message.');
+                throw e;
+            }
+        }
+
+        // Déchiffrer un message
+        async function decryptMessage(base64Data, keyString) {
+            try {
+                const encryptedData = base64ToArrayBuffer(base64Data);
+                if (!encryptedData) return "❌ Message corrompu";
+                const key = await getKey(keyString);
+                const iv = encryptedData.slice(0, 12);
+                const data = encryptedData.slice(12);
+                const decrypted = await crypto.subtle.decrypt(
+                    { name: "AES-GCM", iv: iv },
+                    key,
+                    data
+                );
+                return arrayBufferToString(decrypted);
+            } catch (e) {
+                console.error('Erreur déchiffrement:', e);
+                return "❌ Clé incorrecte ou message corrompu";
+            }
+        }
+
+        // Convertir ArrayBuffer en base64
+        function arrayBufferToBase64(buffer) {
+            return btoa(String.fromCharCode(...new Uint8Array(buffer)));
+        }
+
+        // Convertir base64 en ArrayBuffer
+        function base64ToArrayBuffer(base64) {
+            try {
+                const binary = atob(base64);
+                const len = binary.length;
+                const bytes = new Uint8Array(len);
+                for (let i = 0; i < len; i++) {
+                    bytes[i] = binary.charCodeAt(i);
+                }
+                return bytes;
+            } catch (e) {
+                console.error('Erreur base64:', e);
+                return null;
+            }
+        }
+
+        // Se connecter au WebSocket
+        function connect() {
+            const keyString = document.getElementById("keyInput").value.trim();
+            username = document.getElementById("usernameInput").value.trim();
+            if (!keyString || keyString.length < 16) {
+                alert("La clé doit faire au moins 16 caractères !");
+                return;
+            }
+            if (!username) {
+                alert("Entrez un pseudo !");
+                return;
+            }
+
+            // Connexion WebSocket
+            const wsUrl = location.protocol === 'https:' ? `wss://${location.host}` : 'ws://localhost:3000';
+            console.log('Connexion WebSocket à:', wsUrl);
+            ws = new WebSocket(wsUrl);
+            ws.onopen = () => {
+                console.log('WebSocket connecté');
+                document.getElementById("chat").innerHTML = "<strong>Connecté ! Envoyez vos messages :</strong>";
+                document.getElementById("messageInput").disabled = false;
+                document.getElementById("sendButton").disabled = false;
+                document.getElementById("keyInput").disabled = true;
+                document.getElementById("usernameInput").disabled = true;
+            };
+            ws.onmessage = async (event) => {
+                console.log('Message reçu:', event.data.substring(0, 50) + '...');
+                const encryptedMessage = event.data;
+                const decrypted = await decryptMessage(encryptedMessage, keyString);
+                const chat = document.getElementById("chat");
+                chat.innerHTML += `<p><strong>${new Date().toLocaleTimeString()} :</strong> ${decrypted}</p>`;
+                chat.scrollTop = chat.scrollHeight;
+            };
+            ws.onclose = () => {
+                console.log('WebSocket déconnecté');
+                document.getElementById("chat").innerHTML += "<p class='error'>Déconnexion du serveur.</p>";
+                document.getElementById("messageInput").disabled = true;
+                document.getElementById("sendButton").disabled = true;
+            };
+            ws.onerror = (error) => {
+                console.error('Erreur WebSocket:', error);
+                alert('Erreur de connexion au serveur. Vérifiez les logs ou l’URL.');
+            };
+        }
+
+        // Envoyer un message chiffré
+        async function sendMessage() {
+            const message = document.getElementById("messageInput").value.trim();
+            const keyString = document.getElementById("keyInput").value.trim();
+            if (!message) {
+                alert("Entrez un message !");
+                return;
+            }
+            if (!ws || ws.readyState !== WebSocket.OPEN) {
+                alert("Non connecté au serveur ! Cliquez sur 'Se connecter'.");
+                return;
+            }
+            try {
+                const fullMessage = `${username}: ${message}`;
+                const encrypted = await encryptMessage(fullMessage, keyString);
+                console.log('Envoi message chiffré:', encrypted.substring(0, 50) + '...');
+                ws.send(encrypted);
+                document.getElementById("messageInput").value = "";
+            } catch (e) {
+                console.error('Erreur envoi:', e);
+                alert('Erreur lors de l’envoi du message.');
+            }
+        }
+
+        // Envoyer avec la touche Entrée
+        document.getElementById("messageInput").addEventListener("keypress", (e) => {
+            if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                sendMessage();
+            }
+        });
+    </script>
+</body>
+</html>
